@@ -2,7 +2,7 @@ import torch
 from torchvision.utils import make_grid
 import matplotlib.pyplot as plt
 
-from vae_model import ConvVAE
+from conv_vae_model import ConvVAE
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

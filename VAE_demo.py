@@ -39,7 +39,8 @@ class VAE(nn.Module):
 
 # 2. 定义损失函数（重建损失+KL散度）
 def loss_function(recon_x, x, mu, logvar):
-    BCE = nn.functional.binary_cross_entropy(recon_x, x.view(-1, 784), reduction='sum')
+    BCE = nn.functional.binary_cross_entropy(
+        recon_x, x.view(-1, 784), reduction='sum')
     # KL 散度
     KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
     return BCE + KLD

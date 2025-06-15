@@ -2,7 +2,8 @@ import torch
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
-from vae_model import ConvVAE, loss_function
+from conv_vae_model import ConvVAE
+from vae_model import loss_function
 import os
 
 # 数据加载
