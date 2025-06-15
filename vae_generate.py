@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from vae_model import VAE
 
 
-version = 'v7'  # 版本号
+version = 'v8'  # 版本号
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = VAE().to(device)
 model.load_state_dict(

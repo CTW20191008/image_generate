@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from torchmetrics.image.fid import FrechetInceptionDistance
 
 
-version = 'v7'  # 版本号
+version = 'v8'  # 版本号
 # 数据加载
 batch_size = 128
 transform = transforms.Compose([

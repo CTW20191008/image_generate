@@ -62,9 +62,9 @@ class VAE(nn.Module):
             nn.ReLU(),
             # 可以继续加更多层
         )
-        # # 堆叠多个注意力层
-        # self.attn_layers = nn.ModuleList(
-        #     [MultiHeadSelfAttention(hidden_dim, num_heads=8) for _ in range(num_attn)])
+        # 堆叠多个注意力层
+        self.attn_layers = nn.ModuleList(
+            [MultiHeadSelfAttention(hidden_dim, num_heads=8) for _ in range(num_attn)])
         self.fc4 = nn.Linear(hidden_dim, input_dim)
 
     def encode(self, x):
@@ -79,9 +79,9 @@ class VAE(nn.Module):
 
     def decode(self, z):
         h3 = self.decoder(z)
-        # # 依次通过多个注意力层
-        # for attn in self.attn_layers:
-        #     h3 = attn(h3)
+        # 依次通过多个注意力层
+        for attn in self.attn_layers:
+            h3 = attn(h3)
         return torch.sigmoid(self.fc4(h3)).view(
             -1, self.image_size[0], self.image_size[1], self.image_size[2]
         )
