@@ -5,10 +5,11 @@ import matplotlib.pyplot as plt
 from vae_model import VAE
 
 
+version = 'v7'  # 版本号
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = VAE().to(device)
-checkpoint = torch.load('vae_rgb_v5.pth', map_location=device)
-model.load_state_dict(checkpoint['model_state_dict'])
+model.load_state_dict(
+    torch.load(f'vae_rgb_{version}_best.pth', map_location=device))
 model.eval()
 print("模型权重已加载")
 
@@ -19,5 +20,5 @@ with torch.no_grad():
     plt.figure(figsize=(8, 8))  # 可调整显示尺寸
     plt.imshow(grid_img.permute(1, 2, 0).numpy())
     plt.axis('off')
-    plt.savefig('vae_rgb_v5.png')  # 保存图片
+    plt.savefig(f'vae_rgb_{version}.png')  # 保存图片
     # plt.show()

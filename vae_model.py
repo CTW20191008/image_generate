@@ -93,12 +93,19 @@ class VAE(nn.Module):
         return self.decode(z), mu, logvar
 
 # ----------- 损失函数 -----------
-def loss_function(recon_x, x, mu, logvar, beta=1.0):
+def loss_function(recon_x, x, mu, logvar, beta=1.0, method='sum'):
     recon_x = torch.clamp(recon_x, 0., 1.)
     BCE = nn.functional.binary_cross_entropy(
-        recon_x.view(x.size(0), -1), 
-        x.view(x.size(0), -1), 
-        reduction='sum'
+        recon_x.view(x.size(0), -1),
+        x.view(x.size(0), -1),
+        reduction=method
     )
-    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+
+    if method == 'sum':
+        KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    else:  # 'mean'
+        KLD = -0.5 * torch.mean(
+            torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
+
+    # print(f"BCE: {BCE.item()}, KLD: {KLD.item()}")
     return BCE + beta * KLD
