@@ -2,7 +2,7 @@ import torch
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
-from vae_model import VAE, loss_function
+from vae_condition_model import ConditionVAE, loss_function
 import os
 import matplotlib.pyplot as plt
 from torchmetrics.image.fid import FrechetInceptionDistance
@@ -22,7 +22,7 @@ train_loader = DataLoader(
 
 # 初始化模型、优化器
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = VAE().to(device)
+model = ConditionVAE().to(device)
 optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
 # FID初始化
@@ -31,7 +31,7 @@ fid_metric = FrechetInceptionDistance(
 
 # 检查是否有断点
 start_epoch = 0
-checkpoint_path = f'vae_rgb_{version}.pth'
+checkpoint_path = f'vae_condition_{version}.pth'
 best_fid = float('inf')
 if os.path.exists(checkpoint_path):
     model.load_state_dict(
@@ -49,12 +49,12 @@ avg_loss = 0.0
 for epoch in range(start_epoch, num_epochs):
     model.train()
     train_loss = 0
-    for batch_idx, (data, _) in enumerate(train_loader):
-        data = data.to(device)
+    for batch_idx, (data, target) in enumerate(train_loader):
+        data, target = data.to(device), target.to(device)
         noisy_data = data + noise_std * torch.randn_like(data)
         noisy_data = torch.clamp(noisy_data, 0., 1.)
         optimizer.zero_grad()
-        recon_batch, mu, logvar = model(noisy_data)
+        recon_batch, mu, logvar = model(noisy_data, target)
         loss = loss_function(recon_batch, data, mu, logvar)
         loss.backward()
         train_loss += loss.item()
@@ -70,9 +70,10 @@ for epoch in range(start_epoch, num_epochs):
             real_images = []
             fake_images = []
             # 只用一个batch评估FID（如需更准确可多batch或全量）
-            for val_data, _ in train_loader:
+            for val_data, val_label in train_loader:
                 val_data = val_data.to(device)
-                recon, _, _ = model(val_data)
+                val_label = val_label.to(device)
+                recon, _, _ = model(val_data, val_label)  # 传入标签
                 real_images.append(val_data)
                 fake_images.append(recon)
                 break  # 只取一个batch
@@ -89,7 +90,7 @@ for epoch in range(start_epoch, num_epochs):
             # 保存最优模型
             if fid_score < best_fid:
                 best_fid = fid_score
-                torch.save(model.state_dict(), f'vae_rgb_{version}_best.pth')
+                torch.save(model.state_dict(), f'vae_condition_{version}_best.pth')
                 print(f'>> 保存了新的最优推理模型，FID: {fid_score:.4f}')
 
 # 常规断点保存
@@ -103,7 +104,7 @@ plt.xlabel('Epoch')
 plt.ylabel('Loss')
 plt.grid(True)
 plt.tight_layout()
-plt.savefig(f'vae_rgb_{version}_loss.png')
+plt.savefig(f'vae_condition_{version}_loss.png')
 # plt.show()
 
 # 画出FID曲线并保存
@@ -117,5 +118,5 @@ if len(fid_list) > 0:
     plt.ylabel('FID')
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig(f'vae_rgb_{version}_fid.png')
+    plt.savefig(f'vae_condition_{version}_fid.png')
     # plt.show()

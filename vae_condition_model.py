@@ -4,17 +4,18 @@ import torch.nn as nn
 
 
 # ----------- VAE模型 -----------
-class VAE(nn.Module):
+class ConditionVAE(nn.Module):
     def __init__(
             self, input_dim=150528, hidden_dim=4096, latent_dim=256,
-            image_size=(3, 224, 224)
+            num_classes=2, image_size=(3, 224, 224)
     ):
-        super(VAE, self).__init__()
+        super(ConditionVAE, self).__init__()
         self.image_size = image_size
+        self.num_classes = num_classes
 
         # 多层编码器
         self.encoder = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            nn.Linear(input_dim + num_classes, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, 1024),
             nn.ReLU(),
@@ -25,7 +26,7 @@ class VAE(nn.Module):
 
         # 多层解码器
         self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, 1024),
+            nn.Linear(latent_dim + num_classes, 1024),
             nn.ReLU(),
             nn.Linear(1024, hidden_dim),
             nn.ReLU(),
@@ -33,7 +34,10 @@ class VAE(nn.Module):
         )
         self.fc4 = nn.Linear(hidden_dim, input_dim)
 
-    def encode(self, x):
+    def encode(self, x, y):
+        y_onehot = torch.nn.functional.one_hot(
+            y, num_classes=self.num_classes).float()
+        x = torch.cat([x, y_onehot], dim=1)
         h1 = self.encoder(x)
         return self.fc21(h1), self.fc22(h1)
 
@@ -43,17 +47,19 @@ class VAE(nn.Module):
         eps = torch.randn_like(std) # 采样 epsilon ~ N(0,1)
         return mu + eps * std
 
-    def decode(self, z):
+    def decode(self, z, y):
+        y_onehot = torch.nn.functional.one_hot(y, num_classes=self.num_classes).float()
+        z = torch.cat([z, y_onehot], dim=1)
         h3 = self.decoder(z)
-        return torch.sigmoid(self.fc4(h3)).view(
-            -1, self.image_size[0], self.image_size[1], self.image_size[2]
-        )
+        return torch.sigmoid(
+            self.fc4(h3)).view(
+                -1, self.image_size[0], self.image_size[1],
+                self.image_size[2])
 
-    def forward(self, x):
-        # mu，logvar：潜在变量分布（latent variable）的均值和对数方差。
-        mu, logvar = self.encode(x.view(x.size(0), -1))
+    def forward(self, x, y):
+        mu, logvar = self.encode(x.view(x.size(0), -1), y)
         z = self.reparameterize(mu, logvar)
-        return self.decode(z), mu, logvar
+        return self.decode(z, y), mu, logvar
 
 # ----------- 损失函数 -----------
 def loss_function(recon_x, x, mu, logvar, beta=1.0, method='sum'):
