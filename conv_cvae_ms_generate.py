@@ -24,7 +24,7 @@ for cls, label in categories.items():
         chosen_imgs.append(os.path.join(img_dir, fname))
         labels.append(label)
 
-img_size = 32
+img_size = 64
 # 2. 读取图片并预处理
 transform = transforms.Compose([
     transforms.Resize((img_size, img_size)),  # 根据你的模型输入尺寸调整
@@ -36,13 +36,14 @@ for img_path in chosen_imgs:
     img = Image.open(img_path).convert('RGB')
     img = transform(img)
     imgs.append(img)
-imgs = torch.stack(imgs)  # [4, 3, 64, 64]
+imgs = torch.stack(imgs)
 labels = torch.tensor(labels, dtype=torch.long)
 
 # 3. 加载模型
-version = 'v9'
+version = 'v12'
+latent_dim = 256
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = MultiScaleConvCVAE().to(device)
+model = MultiScaleConvCVAE(latent_dim=latent_dim).to(device)
 model.load_state_dict(
     torch.load(f'conv_cvae_{version}_best.pth', map_location=device))
 model.eval()
@@ -57,13 +58,13 @@ with torch.no_grad():
     (mu_4x4, logvar_4x4), (mu_2x2, logvar_2x2) = model.encode(imgs, labels)
     z_4x4 = model.reparameterize(mu_4x4, logvar_4x4)
     z_2x2 = model.reparameterize(mu_2x2, logvar_2x2)
-    recon, _ = model.decode(z_4x4, z_2x2, labels)
+    recon, _ = model.decode(z_4x4, z_2x2, labels, img_size)
     recon = recon.cpu()
 
     # 采样生成
     z_4x4_sample = torch.randn(imgs.size(0), model.latent_dim).to(device)
     z_2x2_sample = torch.randn(imgs.size(0), model.latent_dim).to(device)
-    gen, _ = model.decode(z_4x4_sample, z_2x2_sample, labels)
+    gen, _ = model.decode(z_4x4_sample, z_2x2_sample, labels, img_size)
     gen = gen.cpu()
 
     # 拼图显示
@@ -74,4 +75,3 @@ with torch.no_grad():
     plt.imshow(grid_img.permute(1, 2, 0).numpy())
     plt.axis('off')
     plt.savefig(f'conv_cvae_{version}_real_recon_sample.png')
-

@@ -2,23 +2,25 @@ import torch
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
-from conv_cvae_ms_model import MultiScaleConvCVAE, loss_function_multiscale
+from conv_cvae_ms_model import MultiScaleConvCVAE
+from conv_cvae_ms_model import loss_function_multiscale
 import os
 import matplotlib.pyplot as plt
 from torchmetrics.image.fid import FrechetInceptionDistance
 
-version = 'v9'
+version = 'v12'
 batch_size = 128
-img_size = 32
+img_size = 64
+latent_dim = 256
 
-# 训练集数据增强
+
+# 训练集只做基本处理
 train_transform = transforms.Compose([
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomCrop(img_size, padding=4),
-    transforms.ColorJitter(
-        brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+    transforms.Resize(img_size),
+    transforms.CenterCrop(img_size),
     transforms.ToTensor(),
 ])
+
 
 # 验证集只做基本处理
 valid_transform = transforms.Compose([
@@ -39,7 +41,8 @@ valid_loader = DataLoader(
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = MultiScaleConvCVAE(
-    image_channels=3, num_classes=2, latent_dim=64, img_size=img_size).to(device)
+    image_channels=3, num_classes=2, latent_dim=latent_dim,
+    base_channels=img_size).to(device)
 optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
 fid_metric = FrechetInceptionDistance(feature=2048, normalize=True).to(device)
@@ -53,7 +56,7 @@ if os.path.exists(checkpoint_path):
 else:
     print("未检测到断点，将从头开始训练")
 
-num_epochs = 2400
+num_epochs = 10000
 noise_std = 0.0
 loss_list = []
 fid_list = []
@@ -68,7 +71,7 @@ for epoch in range(start_epoch, num_epochs):
         optimizer.zero_grad()
         recon_x, (mu_4x4, logvar_4x4), (mu_2x2, logvar_2x2), h_4x4 = model(
             noisy_data, label)
-        beta = min(1.0, epoch / 1000)
+        beta = min(1.0, 2*epoch/num_epochs)
         loss = loss_function_multiscale(
             recon_x, data, mu_4x4, logvar_4x4, mu_2x2, logvar_2x2, h_4x4,
             beta=beta)
