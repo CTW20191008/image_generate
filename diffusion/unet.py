@@ -40,9 +40,13 @@ class ConvBlock(nn.Module):
         return h
 
 class UNet(nn.Module):
-    def __init__(self, time_emb_dim=64):
+    def __init__(self, time_emb_dim=64, num_classes=None):
         super().__init__()
         self.time_embedding = TimeEmbedding(time_emb_dim)
+        if num_classes is not None:
+            self.class_emb = nn.Embedding(num_classes, time_emb_dim)
+        else:
+            self.class_emb = None
         # 下采样
         self.enc1 = ConvBlock(3, 64, time_emb_dim)
         self.enc2 = ConvBlock(64, 128, time_emb_dim)
@@ -57,8 +61,11 @@ class UNet(nn.Module):
 
         self.down = nn.MaxPool2d(2)
 
-    def forward(self, x, t):
+    def forward(self, x, t, y=None):
         t_emb = self.time_embedding(t)  # [batch, time_emb_dim]
+        if self.class_emb is not None and y is not None:
+            y_emb = self.class_emb(y)    # [batch, time_emb_dim]
+            t_emb = t_emb + y_emb
         # 编码
         x1 = self.enc1(x, t_emb)      # [B, 64, 64, 64]
         x2 = self.enc2(self.down(x1), t_emb)  # [B, 128, 32, 32]

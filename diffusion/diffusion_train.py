@@ -33,11 +33,11 @@ valid_loader = DataLoader(
     valid_dataset, batch_size=batch_size, shuffle=True, num_workers=8)
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-model = UNet().to(device)
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+model = UNet(num_classes=2).to(device)
+optimizer = optim.Adam(model.parameters(), lr=0.0003)   # begin：0.001
 epochs = 100
 
-version = "v6"
+version = "v7"
 model_file = f'diffusion_rgb_{version}.pth'
 loss_image_file = f'diffusion_rgb_loss_{version}.png'
 
@@ -70,12 +70,13 @@ def evaluate(model, dataloader, device, T):
     total_loss = 0
     count = 0
     with torch.no_grad():
-        for x, _ in dataloader:
+        for x, y in dataloader:
             x = x.to(device)
+            y = y.to(device)
             t = torch.randint(0, T, (x.shape[0],), device=device).long()
             noise = torch.randn_like(x)
             x_noisy = q_sample(x, t, noise)
-            noise_pred = model(x_noisy, t)
+            noise_pred = model(x_noisy, t, y)
             noise_pred = noise_pred.view(x.shape)
             loss = nn.MSELoss()(noise_pred, noise)
             total_loss += loss.item()
@@ -89,12 +90,13 @@ best_valid_loss = float('inf')
 for epoch in range(epochs):
     epoch_loss = 0
     batch_count = 0
-    for x, _ in train_loader:
+    for x, y in train_loader:
         x = x.to(device)
+        y = y.to(device)
         t = torch.randint(0, T, (x.shape[0],), device=device).long()
         noise = torch.randn_like(x)
         x_noisy = q_sample(x, t, noise)
-        noise_pred = model(x_noisy, t)
+        noise_pred = model(x_noisy, t, y)
         noise_pred = noise_pred.view(x.shape)  # 修正
         loss = nn.MSELoss()(noise_pred, noise)
         optimizer.zero_grad()
