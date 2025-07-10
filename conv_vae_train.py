@@ -42,7 +42,7 @@ valid_loader = DataLoader(
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = SingleScaleConvVAE(
     image_channels=3, latent_dim=latent_dim, base_channels=img_size).to(device)
-optimizer = optim.Adam(model.parameters(), lr=1e-4)
+optimizer = optim.Adam(model.parameters(), lr=5e-6)
 
 fid_metric = FrechetInceptionDistance(feature=2048, normalize=True).to(device)
 
@@ -116,7 +116,7 @@ plt.savefig(f'conv_vae_{version}_loss.png')
 
 if len(fid_list) > 0:
     plt.figure(figsize=(8, 5))
-    fid_x = list(range(20, num_epochs + 1, 20))
+    fid_x = list(range(10, num_epochs + 1, 10))
     plt.plot(fid_x, fid_list, marker='s', color='g')
     plt.title('VAE FID Curve')
     plt.xlabel('Epoch')

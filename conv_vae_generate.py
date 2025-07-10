@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 
 from conv_vae import SingleScaleConvVAE  # 改为你的无条件VAE文件名和类名
 
+
 # 1. 随机选取图片（不再需要类别标签）
 root = 'data/rgb/valid'
 all_img_files = []

@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 # ----------- 残差块 -----------
 class ResBlock(nn.Module):
     def __init__(self, channels):
@@ -95,6 +96,13 @@ class SingleScaleConvVAE(nn.Module):
         z_4x4 = self.reparameterize(mu_4x4, logvar_4x4)
         recon_x, h_4x4_img = self.decode(z_4x4, output_size=x.shape[2:])
         return recon_x, mu_4x4, logvar_4x4, h_4x4_img
+
+    def decode_simple(self, h_4x4, output_size):
+        # 主解码器
+        out = self.decoder(h_4x4)  # (B, C, H', W')
+        # 动态上采样到目标尺寸
+        out = F.interpolate(out, size=output_size, mode='bilinear', align_corners=False)
+        return out
 
 # ----------- 无条件单尺度损失 -----------
 def loss_function_singlescale(

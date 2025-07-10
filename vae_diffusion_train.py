@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import os
 
-from conv_cvae_ms_model import MultiScaleConvCVAE
+from conv_vae import SingleScaleConvVAE
 from sd_unet import UNetSD
 from diffusion.diffusion import diffusion
 
@@ -28,19 +28,16 @@ valid_dataset = datasets.ImageFolder(
 valid_loader = DataLoader(
     valid_dataset, batch_size=batch_size, shuffle=True, num_workers=8)
 
-from conv_cvae_ms_model import MultiScaleConvCVAE
-
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-vae = MultiScaleConvCVAE(latent_dim=256).to(device)
-vae.load_state_dict(torch.load('conv_cvae_v13_best.pth', map_location=device))
+vae = SingleScaleConvVAE(latent_dim=256).to(device)
+vae.load_state_dict(torch.load('conv_vae_v1_best.pth', map_location=device))
 vae.eval()  # VAE通常不训练，只做编码/解码
 
 unet = UNetSD(
-    in_channels=2*vae.latent_dim, out_channels=2*vae.latent_dim,
-    num_classes=2).to(device)  # in_channels要和latent一致
-optimizer = optim.Adam(unet.parameters(), lr=0.0003)
+    in_channels=vae.latent_dim, out_channels=vae.latent_dim).to(device)  # in_channels要和latent一致
+optimizer = optim.Adam(unet.parameters(), lr=0.0001)
 
-version = "v14"
+version = "v1"
 model_file = f'vae_diffusion_{version}.pth'
 loss_image_file = f'vae_diffusion_loss_{version}.png'
 
@@ -73,28 +70,19 @@ def evaluate(unet, vae, dataloader, device, T):
     total_loss = 0
     count = 0
     with torch.no_grad():
-        for x, y in dataloader:
+        for x, _ in dataloader:
             x = x.to(device)
-            y = y.to(device)
             # 1. 编码得到latent
-            (mu_4x4, logvar_4x4), (mu_2x2, logvar_2x2) = vae.encode(x, y)
-            z_4x4 = vae.reparameterize(mu_4x4, logvar_4x4)
-            z_2x2 = vae.reparameterize(mu_2x2, logvar_2x2)
-            latent = torch.cat([z_4x4, z_2x2], dim=1)  # [B, latent_dim*2, H, W]
-
-            B = z_4x4.shape[0]
-            latent_dim = z_4x4.shape[1]
-            # reshape
-            latent = latent.view(B, 2*latent_dim, 1, 1)  # [B, 2*latent_dim, 1, 1]
-            # 上采样到4x4（或你需要的空间尺寸）
-            latent = F.interpolate(latent, size=(8, 8), mode='nearest')  # [B, 2*latent_dim, 4, 4]
+            mu_4x4, logvar_4x4 = vae.encode(x)
+            latent = vae.reparameterize(mu_4x4, logvar_4x4)
+            latent_map = vae.fc_decode_4x4(latent).view(latent.size(0), -1, 4, 4)
 
             # 2. 在latent空间加噪声
-            t = torch.randint(0, T, (latent.shape[0],), device=device).long()
-            noise = torch.randn_like(latent)
-            latent_noisy = q_sample(latent, t, noise)
+            t = torch.randint(0, T, (latent_map.shape[0],), device=device).long()
+            noise = torch.randn_like(latent_map)
+            latent_noisy = q_sample(latent_map, t, noise)
             # 3. U-Net预测噪声
-            noise_pred = unet(latent_noisy, t, y)
+            noise_pred = unet(latent_noisy, t)
             # 4. 损失
             loss = nn.MSELoss()(noise_pred, noise)
             total_loss += loss.item()
@@ -109,30 +97,24 @@ for epoch in range(epochs):
     # begin_time = time.time()
     epoch_loss = 0
     batch_count = 0
-    for x, y in train_loader:
+    for x, _ in train_loader:
         x = x.to(device)
-        y = y.to(device)
         with torch.no_grad():
             # 1. 用VAE编码图片得到latent
-            (mu_4x4, logvar_4x4), (mu_2x2, logvar_2x2) = vae.encode(x, y)
-            z_4x4 = vae.reparameterize(mu_4x4, logvar_4x4)
-            z_2x2 = vae.reparameterize(mu_2x2, logvar_2x2)
-            latent = torch.cat([z_4x4, z_2x2], dim=1)  # [B, 2*latent_dim, H, W]
-
-            B = z_4x4.shape[0]
-            latent_dim = z_4x4.shape[1]
-            # reshape
-            latent = latent.view(B, 2*latent_dim, 1, 1)  # [B, 2*latent_dim, 1, 1]
-            # 上采样到4x4（或你需要的空间尺寸）
-            latent = F.interpolate(latent, size=(8, 8), mode='nearest')  # [B, 2*latent_dim, 4, 4]
+            mu_4x4, logvar_4x4 = vae.encode(x)
+            latent = vae.reparameterize(mu_4x4, logvar_4x4)
+            latent_map = vae.fc_decode_4x4(latent).view(latent.size(0), -1, 4, 4)
 
         # 2. 在latent空间加噪声
-        t = torch.randint(0, T, (latent.shape[0],), device=device).long()
-        noise = torch.randn_like(latent)
-        latent_noisy = q_sample(latent, t, noise)
+        t = torch.randint(0, T, (latent_map.shape[0],), device=device).long()
+        noise = torch.randn_like(latent_map)
+        # print(f"[TMP]: noise shape is {noise.shape}")
+        latent_noisy = q_sample(latent_map, t, noise)
+        # print(f"[TMP]: latent_noisy shape is {latent_noisy.shape}")
 
         # 3. 用U-Net预测噪声
-        noise_pred = unet(latent_noisy, t, y)
+        noise_pred = unet(latent_noisy, t)
+        # print(f"[TMP]: noise_pred shape is {noise_pred.shape}")
         loss = nn.MSELoss()(noise_pred, noise)
 
         optimizer.zero_grad()

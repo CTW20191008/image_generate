@@ -1,87 +1,113 @@
+import os
+import random
+from PIL import Image
 import torch
-import torch.nn.functional as F
-import torchvision.utils as vutils
+from torchvision import transforms
+from torchvision.utils import make_grid
+import matplotlib.pyplot as plt
 
+from conv_vae import SingleScaleConvVAE
+from sd_unet import UNetSD  # 你的扩散模型文件和类名
 from diffusion.diffusion import diffusion
-from conv_cvae_ms_model import MultiScaleConvCVAE
-from sd_unet import UNetSD
 
 
-def sample_latent_diffusion(
-        unet, vae, n=4, class_labels=None, T=1000, device='cuda'):
-    vae.eval()
-    unet.eval()
-    with torch.no_grad():
-        latent_dim = vae.latent_dim
-        # latent空间 shape 和训练时一致：[B, 2*latent_dim, 8, 8]
-        latent_shape = (n, 2*latent_dim, 8, 8)
-        x = torch.randn(latent_shape, device=device)
-
-        # 处理class_labels
-        if class_labels is None:
-            class_labels = torch.zeros(n, dtype=torch.long, device=device)
-        else:
-            class_labels = torch.tensor(class_labels, dtype=torch.long, device=device)
-
-        # 获取扩散参数
-        betas, alphas, alphas_cumprod = diffusion(T)
-        betas = betas.to(device)
-        alphas = alphas.to(device)
-        alphas_cumprod = alphas_cumprod.to(device)
-
-        for t in reversed(range(T)):
-            t_tensor = torch.full((n,), t, device=device, dtype=torch.long)
-            noise_pred = unet(x, t_tensor, class_labels)
-            beta = betas[t]
-            alpha = alphas[t]
-            alpha_cumprod = alphas_cumprod[t]
-            # 保证形状匹配
-            while beta.dim() < x.dim():
-                beta = beta.unsqueeze(-1)
-                alpha = alpha.unsqueeze(-1)
-                alpha_cumprod = alpha_cumprod.unsqueeze(-1)
-            if t > 0:
-                noise = torch.randn_like(x)
-            else:
-                noise = torch.zeros_like(x)
-            x = (1 / alpha.sqrt()) * (x - ((1 - alpha) / (1 - alpha_cumprod).sqrt()) * noise_pred) + beta.sqrt() * noise
-
-        # x是采样得到的latent，形状 [n, 2*latent_dim, 8, 8]
-        # 还原出z_4x4和z_2x2
-        z = x
-        # 先还原成 [n, 2, latent_dim, 8, 8]
-        z = z.view(n, 2, latent_dim, 8, 8)
-        # 取出z_4x4和z_2x2
-        z_4x4 = F.adaptive_avg_pool2d(z[:,0], (4,4))  # [n, latent_dim, 4, 4]
-        z_2x2 = F.adaptive_avg_pool2d(z[:,1], (2,2))  # [n, latent_dim, 2, 2]
-
-        # VAE解码器支持多尺度输入，按你的模型API
-        imgs = vae.decode(z_4x4, z_2x2)
-        # imgs: [n, 3, 64, 64]
-        return imgs
+def p_sample(model, z_t, t, alphas, alphas_cumprod, betas):
+    pred_noise = model(z_t, torch.full((z_t.shape[0],), t, device=z_t.device, dtype=torch.long))
+    alpha = alphas[t]
+    alpha_bar = alphas_cumprod[t]
+    beta = betas[t]
+    if t > 0:
+        noise = torch.randn_like(z_t)
+    else:
+        noise = torch.zeros_like(z_t)
+    z_prev = (1 / alpha.sqrt()) * (z_t - beta / (1 - alpha_bar).sqrt() * pred_noise) + beta.sqrt() * noise
+    return z_prev
 
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-vae = MultiScaleConvCVAE(latent_dim=256).to(device)
-vae.load_state_dict(torch.load('conv_cvae_v13_best.pth', map_location=device))
+# ========== 数据加载部分 ==========
+root = 'data/rgb/valid'
+all_img_files = []
+for cls in os.listdir(root):
+    img_dir = os.path.join(root, cls)
+    if not os.path.isdir(img_dir):
+        continue
+    img_files = [os.path.join(img_dir, f) for f in os.listdir(img_dir)
+                 if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    all_img_files.extend(img_files)
+
+n_imgs = 4
+chosen_imgs = random.sample(all_img_files, n_imgs)
+
+img_size = 64
+transform = transforms.Compose([
+    transforms.Resize((img_size, img_size)),
+    transforms.ToTensor(),
+])
+
+imgs = []
+for img_path in chosen_imgs:
+    img = Image.open(img_path).convert('RGB')
+    img = transform(img)
+    imgs.append(img)
+imgs = torch.stack(imgs)
+
+# ========== 加载模型 ==========
+version = 'v1'
+latent_dim = 256
+num_timesteps = 1000
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+vae = SingleScaleConvVAE(latent_dim=latent_dim, image_channels=3, base_channels=img_size).to(device)
+vae.load_state_dict(torch.load(f'conv_vae_{version}_best.pth', map_location=device))
 vae.eval()
+print("VAE权重已加载")
 
-unet = UNetSD(
-    in_channels=2*vae.latent_dim, out_channels=2*vae.latent_dim,
-    num_classes=2).to(device)
-unet_file = 'best_vae_diffusion_v14.pth'
-unet.load_state_dict(
-    torch.load(unet_file, map_location=device))
-unet.eval()
+diffusion_version = "v1"
+diffusion_model = UNetSD(
+    in_channels=vae.latent_dim, out_channels=vae.latent_dim).to(device)
+diffusion_model.load_state_dict(
+    torch.load(f'vae_diffusion_{diffusion_version}.pth', map_location=device))
+diffusion_model.eval()
+print("Diffusion权重已加载")
+
+imgs = imgs.to(device)
+
+def diffusion_sample(
+        diffusion_model, latent_map, num_timesteps, device):
+    betas, alphas, alphas_cumprod = diffusion(num_timesteps)
+    betas, alphas, alphas_cumprod = [
+        x.to(device) for x in (betas, alphas, alphas_cumprod)]
+    z = torch.randn(latent_map.shape, device=device)
+    diffusion_model.eval()
+    with torch.no_grad():
+        for t in reversed(range(num_timesteps)):
+            z = p_sample(diffusion_model, z, t, alphas, alphas_cumprod, betas)
+    return z
 
 
-# 假设你想生成8张图片，类别为0
-imgs = sample_latent_diffusion(
-    unet, vae, n=4, class_labels=[0]*4, T=1000, device=device)
-# 恢复到[0,1]区间
-imgs = (imgs.clamp(-1, 1) + 1) / 2
+# ========== 编码-重建 & Diffusion+VAE生成 ==========
+with torch.no_grad():
+    # 编码
+    mu_4x4, logvar_4x4 = vae.encode(imgs)
+    z_4x4 = vae.reparameterize(mu_4x4, logvar_4x4)
+    recon, h_4x4_img = vae.decode(z_4x4, output_size=img_size)
+    recon = recon.cpu()
 
-model_name = unet_file.split(".")[0]
-generate_image_file = f"{model_name}.png"
-# 保存
-vutils.save_image(imgs, generate_image_file, nrow=2)
+    latent_map = vae.fc_decode_4x4(z_4x4).view(z_4x4.size(0), -1, 4, 4)
+    # Diffusion潜空间采样
+    z_4x4_sample = diffusion_sample(
+        diffusion_model, latent_map, num_timesteps, device)
+
+    gen = vae.decode_simple(z_4x4_sample, output_size=img_size)
+    gen = gen.cpu()
+
+    # 拼图显示
+    all_imgs = torch.cat([imgs.cpu(), recon, gen], dim=0)
+    grid_img = make_grid(all_imgs, nrow=n_imgs, normalize=True, value_range=(0,1))
+    plt.figure(figsize=(3*n_imgs, 9))
+    plt.title('Top: Original | Middle: Reconstructed | Bottom: Diffusion+VAE Sampled')
+    plt.imshow(grid_img.permute(1, 2, 0).numpy())
+    plt.axis('off')
+    plt.savefig(f'vae_diffusion_{version}_real_recon_sample.png')
+    plt.show()

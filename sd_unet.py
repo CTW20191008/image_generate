@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
 class ResBlock(nn.Module):
     def __init__(self, in_channels, out_channels, time_emb_dim):
         super().__init__()
@@ -21,7 +20,6 @@ class ResBlock(nn.Module):
         h = self.act(self.conv2(h))
         return h + self.residual_conv(x)
 
-
 class AttentionBlock(nn.Module):
     def __init__(self, channels):
         super().__init__()
@@ -34,10 +32,14 @@ class AttentionBlock(nn.Module):
         h = self.norm(x)
         qkv = self.qkv(h).reshape(B, 3, C, H * W)
         q, k, v = qkv[:, 0], qkv[:, 1], qkv[:, 2]
-        attn = torch.softmax((q.transpose(1, 2) @ k) / (C ** 0.5), dim=-1)
-        out = (attn @ v.transpose(1, 2)).transpose(1, 2).reshape(B, C, H, W)
+        # 归一化
+        q = q.permute(0, 2, 1)  # [B, HW, C]
+        k = k.permute(0, 2, 1)  # [B, HW, C]
+        v = v.permute(0, 2, 1)  # [B, HW, C]
+        attn = torch.softmax(torch.bmm(q, k.transpose(1, 2)) / (C ** 0.5), dim=-1)  # [B, HW, HW]
+        out = torch.bmm(attn, v)  # [B, HW, C]
+        out = out.permute(0, 2, 1).reshape(B, C, H, W)
         return x + self.proj(out)
-
 
 class Downsample(nn.Module):
     def __init__(self, channels):
@@ -47,7 +49,6 @@ class Downsample(nn.Module):
     def forward(self, x):
         return self.conv(x)
 
-
 class Upsample(nn.Module):
     def __init__(self, channels):
         super().__init__()
@@ -56,7 +57,6 @@ class Upsample(nn.Module):
     def forward(self, x):
         x = F.interpolate(x, scale_factor=2, mode='nearest')
         return self.conv(x)
-
 
 # 时间步嵌入（sinusoidal + MLP）
 class TimeEmbedding(nn.Module):
@@ -77,20 +77,13 @@ class TimeEmbedding(nn.Module):
         emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1)  # [batch, 64]
         return self.mlp(emb)  # [batch, dim]
 
-
 class UNetSD(nn.Module):
     def __init__(
             self, in_channels=3, out_channels=3, base_channels=64,
-            time_emb_dim=256, num_classes=None):
+            time_emb_dim=256):
         super().__init__()
 
         self.time_embedding = TimeEmbedding(time_emb_dim)
-        if num_classes is not None:
-            self.class_emb = nn.Embedding(num_classes, time_emb_dim)
-            # self.class_emb_proj = nn.Linear(time_emb_dim, time_emb_dim * 4)
-        else:
-            self.class_emb = None
-            # self.class_emb_proj = None
         chs = [base_channels, base_channels*2, base_channels*4, base_channels*4]
         # 输入
         self.in_conv = nn.Conv2d(in_channels, base_channels, 3, padding=1)
@@ -119,14 +112,11 @@ class UNetSD(nn.Module):
         ])
         self.out_norm = nn.GroupNorm(32, base_channels)
         self.out_act = nn.SiLU()
-        self.out_conv = nn.Conv2d(base_channels, out_channels, 3, padding=1)
+        self.out_conv = nn.Conv2d(
+            base_channels, out_channels, kernel_size=3, stride=2, padding=1)
 
-    def forward(self, x, t, y=None):
+    def forward(self, x, t):
         t_emb = self.time_embedding(t)
-        if self.class_emb is not None and y is not None:
-            y_emb = self.class_emb(y)
-            # y_emb = self.class_emb_proj(y_emb)
-            t_emb = t_emb + y_emb
         h = self.in_conv(x)
         hs = [h]
         # Down
