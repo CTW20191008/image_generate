@@ -8,7 +8,7 @@ import os
 import matplotlib.pyplot as plt
 from torchmetrics.image.fid import FrechetInceptionDistance
 
-version = 'v12'
+version = 'v13'
 batch_size = 128
 img_size = 64
 latent_dim = 256
@@ -56,7 +56,7 @@ if os.path.exists(checkpoint_path):
 else:
     print("未检测到断点，将从头开始训练")
 
-num_epochs = 10000
+num_epochs = 800
 noise_std = 0.0
 loss_list = []
 fid_list = []
@@ -71,10 +71,8 @@ for epoch in range(start_epoch, num_epochs):
         optimizer.zero_grad()
         recon_x, (mu_4x4, logvar_4x4), (mu_2x2, logvar_2x2), h_4x4 = model(
             noisy_data, label)
-        beta = min(1.0, 2*epoch/num_epochs)
         loss = loss_function_multiscale(
-            recon_x, data, mu_4x4, logvar_4x4, mu_2x2, logvar_2x2, h_4x4,
-            beta=beta)
+            recon_x, data, mu_4x4, logvar_4x4, mu_2x2, logvar_2x2, h_4x4)
         loss.backward()
         train_loss += loss.item()
         optimizer.step()

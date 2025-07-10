@@ -40,7 +40,7 @@ imgs = torch.stack(imgs)
 labels = torch.tensor(labels, dtype=torch.long)
 
 # 3. 加载模型
-version = 'v12'
+version = 'v13'
 latent_dim = 256
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = MultiScaleConvCVAE(latent_dim=latent_dim).to(device)

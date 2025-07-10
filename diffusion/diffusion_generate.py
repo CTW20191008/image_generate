@@ -1,15 +1,18 @@
 import torch
 import matplotlib.pyplot as plt
-from unet import UNet
+
+# from unet import UNet
+from sd_unet import UNetSD
 from diffusion import diffusion
 
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-model_file = 'best_diffusion_rgb_v7.pth'
+model_file = 'best_diffusion_rgb_v13.pth'
 model_name = model_file.split(".")[0]
 generate_image_file = f"{model_name}.png"
 
-model = UNet(num_classes=2).to(device)  # 假设类别数为2
+model = UNetSD(num_classes=2).to(device)  # 假设类别数为2
+# model = UNet(num_classes=2).to(device)
 model.load_state_dict(torch.load(model_file, map_location=device))
 model.eval()
 
