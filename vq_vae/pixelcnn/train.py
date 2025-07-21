@@ -47,6 +47,7 @@ valid_loss = []
 best_valid_loss = float('inf')
 valid_interval = 10
 for epoch in range(start_epoch, num_epochs):
+    model.train()
     epoch_loss = []
     for x, label in train_dataloader:
         x = x.cuda()      # [B, h, w]，整数类型
